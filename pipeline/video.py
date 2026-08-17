@@ -18,7 +18,7 @@ FPS = 30
 def get_audio_duration(audio_path):
     out = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrapper=1:nokey=1", audio_path,
+        "-of", "default=noprint_wrappers=1:nokey=1", audio_path,
     ])
     return float(out.strip())
 
