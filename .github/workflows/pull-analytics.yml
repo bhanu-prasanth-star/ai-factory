@@ -1,0 +1,21 @@
+name: Pull Analytics Snapshot
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # once a day, well under YouTube's free quota
+  workflow_dispatch: {}
+
+jobs:
+  analytics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Pull latest stats
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+        run: python scripts/pull_analytics.py

@@ -1,0 +1,15 @@
+.env.example
+.env
+
+venv/
+
+schema_additions.sql
+
+
+__pycache__/
+.__pycache__
+__pycache__
+
+
+.__init__.py
+
