@@ -1,29 +1,48 @@
-"""Free scene images via Pollinations.ai (Flux model), plus a local,
-API-free thumbnail generator built with Pillow."""
+"""Free scene images via Pollinations.ai's classic anonymous image
+endpoint, plus a local, API-free thumbnail generator built with
+Pillow.
+
+Deliberately NOT using an API key here: Pollinations' authenticated
+path enforces a per-key Pollen budget that returns 402 once it's
+exhausted, while the anonymous path only rate-limits (~1 request per
+15s) and never bills. For a video every 2 days, the rate limit costs
+a couple of minutes of wait time and nothing else.
+"""
 
 import os
+import time
 from urllib.parse import quote
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-POLLINATIONS_KEY = os.environ.get("POLLINATIONS_API_KEY", "")
+POLLINATIONS_BASE = "https://image.pollinations.ai/prompt/"
+ANONYMOUS_DELAY_SECONDS = 16  # stay comfortably under the ~1 req/15s anonymous limit
 
 
-def generate_image(prompt, out_path, width=1080, height=1920):
-    url = f"https://gen.pollinations.ai/image/{quote(prompt)}"
+def generate_image(prompt, out_path, width=1080, height=1920, retries=2):
+    url = f"{POLLINATIONS_BASE}{quote(prompt)}"
     params = {"model": "flux", "width": width, "height": height, "nologo": "true"}
-    headers = {"Authorization": f"Bearer {POLLINATIONS_KEY}"} if POLLINATIONS_KEY else {}
-    resp = requests.get(url, params=params, headers=headers, timeout=90)
-    resp.raise_for_status()
-    with open(out_path, "wb") as f:
-        f.write(resp.content)
-    return out_path
+
+    last_resp = None
+    for attempt in range(1, retries + 2):
+        resp = requests.get(url, params=params, timeout=90)
+        if resp.status_code == 200:
+            with open(out_path, "wb") as f:
+                f.write(resp.content)
+            return out_path
+        last_resp = resp
+        print(f"Image gen attempt {attempt} failed: {resp.status_code}, retrying...")
+        time.sleep(ANONYMOUS_DELAY_SECONDS)
+
+    last_resp.raise_for_status()
 
 
 def generate_scene_images(beat_prompts, out_dir="scenes"):
     os.makedirs(out_dir, exist_ok=True)
     paths = []
     for i, prompt in enumerate(beat_prompts):
+        if i > 0:
+            time.sleep(ANONYMOUS_DELAY_SECONDS)  # respect the anonymous rate limit
         path = os.path.join(out_dir, f"scene_{i:02d}.jpg")
         generate_image(prompt, path)
         paths.append(path)
