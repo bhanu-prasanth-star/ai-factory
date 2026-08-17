@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,7 +23,6 @@ def get_next_episode():
 
 
 def scene_prompts_from_script(script_text, series_name):
-    """Turn each bracketed beat line into an image-generation prompt."""
     prompts = []
     for line in script_text.splitlines():
         line = line.strip()
@@ -37,12 +37,18 @@ def scene_prompts_from_script(script_text, series_name):
     return prompts
 
 
-def run():
-    episode = get_next_episode()
-    if not episode:
-        print("No queued episodes. Add more rows to the `episodes` table.")
-        return
+def mark_publish_slot_used():
+    """Only called after a real completion (published, or fully scored
+    and rejected) - never on a crash, so a failed run doesn't silently
+    block the next attempt for 2 days."""
+    execute(
+        "INSERT INTO pipeline_state (key, value) VALUES ('last_run_date', %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        (date.today().isoformat(),),
+    )
 
+
+def produce_episode(episode):
     script_text, score, feedback = None, None, None
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -71,6 +77,7 @@ def run():
             f"Episode '{episode['title']}' failed scoring after {MAX_ATTEMPTS} attempts "
             f"(last score {score}). Needs manual review."
         )
+        mark_publish_slot_used()  # a real, complete attempt was made today
         return
 
     metadata = llm.generate_metadata(episode["series_name"], episode["title"], script_text)
@@ -107,9 +114,6 @@ def run():
          ",".join(metadata["hashtags"])),
     )
 
-    # Facebook auto-posting is disabled for now (see README) - hand off
-    # for manual posting instead: ready-to-paste caption + the video
-    # file, both delivered via the same Telegram bot.
     fb_caption = (
         f"{metadata['title']}\n\n{metadata['description']}\n\n"
         + " ".join(f"#{h}" for h in metadata["hashtags"])
@@ -121,7 +125,25 @@ def run():
     )
 
     execute("UPDATE episodes SET status = 'produced' WHERE episode_id = %s", (episode["episode_id"],))
+    mark_publish_slot_used()
     print("Done:", yt_url)
+
+
+def run():
+    episode = get_next_episode()
+    if not episode:
+        print("No queued episodes. Add more rows to the `episodes` table.")
+        return
+
+    try:
+        produce_episode(episode)
+    except Exception as e:
+        execute("UPDATE episodes SET status = 'queued' WHERE episode_id = %s", (episode["episode_id"],))
+        telegram_notify.notify(
+            f"Pipeline crashed on episode '{episode['title']}': {e}\n"
+            f"Reset to 'queued' so the next run retries it."
+        )
+        raise
 
 
 if __name__ == "__main__":
