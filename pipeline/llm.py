@@ -7,7 +7,14 @@ import json
 import requests
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GEMINI_MODEL = "gemini-2.5-flash"
+# gemini-2.5-flash was deprecated for new API keys in Aug 2026, ahead of
+# its Oct 2026 shutdown. gemini-3.5-flash-lite is the current
+# generally-available replacement with the most generous free-tier
+# limits. If this ever 404s again, check
+# https://ai.google.dev/gemini-api/docs/models for the current lineup
+# and either edit the default below or set a GEMINI_MODEL repo secret -
+# no other code changes needed either way.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 GEMINI_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
