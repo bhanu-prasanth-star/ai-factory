@@ -115,36 +115,3 @@ def produce_episode(episode):
     )
 
     fb_caption = (
-        f"{metadata['title']}\n\n{metadata['description']}\n\n"
-        + " ".join(f"#{h}" for h in metadata["hashtags"])
-    )
-    telegram_notify.notify(
-        f"YouTube is live: {yt_url}\n\n"
-        f"Post this to Facebook manually - caption below, video attached:\n\n{fb_caption}",
-        video_path=final_video,
-    )
-
-    execute("UPDATE episodes SET status = 'produced' WHERE episode_id = %s", (episode["episode_id"],))
-    mark_publish_slot_used()
-    print("Done:", yt_url)
-
-
-def run():
-    episode = get_next_episode()
-    if not episode:
-        print("No queued episodes. Add more rows to the `episodes` table.")
-        return
-
-    try:
-        produce_episode(episode)
-    except Exception as e:
-        execute("UPDATE episodes SET status = 'queued' WHERE episode_id = %s", (episode["episode_id"],))
-        telegram_notify.notify(
-            f"Pipeline crashed on episode '{episode['title']}': {e}\n"
-            f"Reset to 'queued' so the next run retries it."
-        )
-        raise
-
-
-if __name__ == "__main__":
-    run()
