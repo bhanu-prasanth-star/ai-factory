@@ -115,3 +115,56 @@ def produce_episode(episode):
     )
 
     fb_caption = (
+        f"{metadata['title']}\n\n{metadata['description']}\n\n"
+        + " ".join(f"#{h}" for h in metadata["hashtags"])
+    )
+    telegram_notify.notify(
+        f"YouTube is live: {yt_url}\n\n"
+        f"Post this to Facebook manually - caption below, video attached:\n\n{fb_caption}",
+        video_path=final_video,
+    )
+
+    execute("UPDATE episodes SET status = 'produced' WHERE episode_id = %s", (episode["episode_id"],))
+    mark_publish_slot_used()
+    print("Done:", yt_url)
+
+
+def _is_expired_youtube_token(exc):
+    """Matches the specific 'invalid_grant' failure Google returns when
+    an OAuth app in Testing mode has an expired refresh token - worth
+    its own clear alert instead of a generic crash message."""
+    return "invalid_grant" in str(exc)
+
+
+def run():
+    episode = get_next_episode()
+    if not episode:
+        print("No queued episodes. Add more rows to the `episodes` table.")
+        return
+
+    try:
+        produce_episode(episode)
+    except Exception as e:
+        execute("UPDATE episodes SET status = 'queued' WHERE episode_id = %s", (episode["episode_id"],))
+
+        if _is_expired_youtube_token(e):
+            telegram_notify.notify(
+                "\U0001F511 YouTube token expired (invalid_grant) - action needed.\n\n"
+                "Your OAuth app is likely still in 'Testing' publishing status, "
+                "where refresh tokens expire every 7 days.\n\n"
+                "Fix: run scripts/get_youtube_refresh_token.py locally again, "
+                "then update the YT_REFRESH_TOKEN GitHub secret with the new "
+                "value it prints.\n\n"
+                f"Episode '{episode['title']}' was reset to 'queued' and will "
+                "publish automatically on the next run once the token is fixed."
+            )
+        else:
+            telegram_notify.notify(
+                f"Pipeline crashed on episode '{episode['title']}': {e}\n"
+                f"Reset to 'queued' so the next run retries it."
+            )
+        raise
+
+
+if __name__ == "__main__":
+    run()
