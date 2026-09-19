@@ -19,22 +19,32 @@ POLLINATIONS_BASE = "https://image.pollinations.ai/prompt/"
 ANONYMOUS_DELAY_SECONDS = 16  # stay comfortably under the ~1 req/15s anonymous limit
 
 
-def generate_image(prompt, out_path, width=1080, height=1920, retries=2):
+def generate_image(prompt, out_path, width=1080, height=1920, retries=3):
+    """Retries on BOTH bad HTTP status codes and low-level connection
+    failures (resets, timeouts, TLS handshake drops) - a shared free
+    endpoint can fail either way, and only the first kind was handled
+    before."""
     url = f"{POLLINATIONS_BASE}{quote(prompt)}"
     params = {"model": "flux", "width": width, "height": height, "nologo": "true"}
 
-    last_resp = None
+    last_error = None
     for attempt in range(1, retries + 2):
-        resp = requests.get(url, params=params, timeout=90)
-        if resp.status_code == 200:
-            with open(out_path, "wb") as f:
-                f.write(resp.content)
-            return out_path
-        last_resp = resp
-        print(f"Image gen attempt {attempt} failed: {resp.status_code}, retrying...")
+        try:
+            resp = requests.get(url, params=params, timeout=90)
+            if resp.status_code == 200:
+                with open(out_path, "wb") as f:
+                    f.write(resp.content)
+                return out_path
+            last_error = requests.exceptions.HTTPError(
+                f"{resp.status_code} response for {url}", response=resp
+            )
+            print(f"Image gen attempt {attempt} failed: HTTP {resp.status_code}, retrying...")
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            print(f"Image gen attempt {attempt} failed: {e!r}, retrying...")
         time.sleep(ANONYMOUS_DELAY_SECONDS)
 
-    last_resp.raise_for_status()
+    raise last_error
 
 
 def generate_scene_images(beat_prompts, out_dir="scenes"):
