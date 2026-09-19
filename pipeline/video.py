@@ -80,7 +80,14 @@ def assemble_video(scene_paths, audio_path, srt_path, music_path, out_path="shor
         "-stream_loop", "-1", "-i", music_path,
         "-filter_complex", filter_complex,
         "-map", "[vout]", "-map", "[aout]",
-        "-c:v", "libx264", "-c:a", "aac", "-shortest",
+        "-c:v", "libx264", "-c:a", "aac",
+        # -shortest alone is unreliable here: the background music input
+        # loops infinitely (-stream_loop -1), and -shortest doesn't
+        # always cut a complex filtergraph cleanly against an infinite
+        # input. Cap the output explicitly at the real narration length
+        # instead of trusting -shortest to figure it out.
+        "-t", f"{duration:.2f}",
+        "-shortest",
         out_path,
     ]
     subprocess.run(cmd, check=True)
